@@ -33,13 +33,13 @@ public class CaptureService extends Service {
  private final ArrayDeque<String> speechQueue=new ArrayDeque<>();
  private final LinkedHashMap<String,Long> recent=new LinkedHashMap<>();
  private boolean ready=false,voice=false,ocrPending=false,paused=false,dead=false,speaking=false;
- private int region=0,source=0; private long lastFrame=0; private String candidate=""; private int stable=0;
+ private int region=0,source=0,zone=30,style=0,textSize=16; private float speechRate=1f,speechPitch=1f; private String requestedVoice=""; private long lastFrame=0; private String candidate=""; private int stable=0;
  @Override public IBinder onBind(Intent i){return null;}
  @Override public void onCreate(){super.onCreate();
   NotificationManager nm=getSystemService(NotificationManager.class);nm.createNotificationChannel(new NotificationChannel("capture","Lectura de subtítulos",NotificationManager.IMPORTANCE_LOW));
   Intent stop=new Intent(this,CaptureService.class).setAction("STOP");PendingIntent pi=PendingIntent.getService(this,2,stop,PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
   startForeground(1,new Notification.Builder(this,"capture").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle("SubVoz está leyendo la pantalla").setContentText("Detén la captura cuando termines").addAction(new Notification.Action.Builder(null,"Detener",pi).build()).build());
-  tts=new TextToSpeech(this,result->{if(dead)return;if(result==TextToSpeech.SUCCESS){int supported=tts.setLanguage(new Locale("es"));voice=supported!=TextToSpeech.LANG_MISSING_DATA && supported!=TextToSpeech.LANG_NOT_SUPPORTED;if(voice && tts.getVoices()!=null){boolean found=false;for(android.speech.tts.Voice v:tts.getVoices())if(v.getLocale().getLanguage().equals("es")&&!v.isNetworkConnectionRequired()){tts.setVoice(v);found=true;break;}voice=found;}if(!voice)show("Instala una voz española sin conexión en Ajustes → Síntesis de voz.");else processSpeechQueue();}});
+  tts=new TextToSpeech(this,result->{if(dead)return;if(result==TextToSpeech.SUCCESS){int supported=tts.setLanguage(new Locale("es"));voice=supported!=TextToSpeech.LANG_MISSING_DATA && supported!=TextToSpeech.LANG_NOT_SUPPORTED;if(voice){if(!requestedVoice.isEmpty()&&tts.getVoices()!=null){for(android.speech.tts.Voice v:tts.getVoices())if(v.getName().equals(requestedVoice)){tts.setVoice(v);break;}}tts.setSpeechRate(speechRate);tts.setPitch(speechPitch);}if(!voice)show("Instala una voz española en Ajustes → Síntesis de voz.");else processSpeechQueue();}});
   tts.setOnUtteranceProgressListener(new UtteranceProgressListener(){
    @Override public void onStart(String id){}
    @Override public void onDone(String id){handler.post(()->{speaking=false;processSpeechQueue();});}
@@ -49,7 +49,7 @@ public class CaptureService extends Service {
  @Override public int onStartCommand(Intent intent,int flags,int id){
   if(intent==null||"STOP".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(projection!=null){show("Ya hay una sesión activa. Detén antes de cambiar ajustes.");return START_NOT_STICKY;}
-  source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));region=intent.getIntExtra("region",0);overlay();
+  source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
   createRecognizer();
   if(source==0){ready=true;show("Listo: subtítulos en español → voz en español.");}
   else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Descargando modelo " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show("Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");}}).addOnFailureListener(e->show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia."));}
@@ -73,8 +73,8 @@ public class CaptureService extends Service {
   }
  }
  private void overlay(){
-  wm=(WindowManager)getSystemService(WINDOW_SERVICE);panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(12,8,12,8);panel.setBackgroundColor(0xEE20242A);
-  status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(13);panel.addView(status);
+  wm=(WindowManager)getSystemService(WINDOW_SERVICE);panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(12,8,12,8);int bg=style==1?0xF5FFFFFF:style==2?0xF5103741:0xEE20242A;panel.setBackgroundColor(bg);
+  status=new TextView(this);status.setTextColor(style==1?Color.rgb(24,32,51):Color.WHITE);status.setTextSize(textSize);panel.addView(status);
   LinearLayout controls=new LinearLayout(this);Button pause=new Button(this);pause.setText("Pausar");controls.addView(pause);pause.setOnClickListener(v->{paused=!paused;pause.setText(paused?"Seguir":"Pausar");if(paused){tts.stop();speaking=false;}else processSpeechQueue();});
   Button clear=new Button(this);clear.setText("Vaciar");controls.addView(clear);clear.setOnClickListener(v->{speechQueue.clear();candidate="";stable=0;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
   Button close=new Button(this);close.setText("Cerrar");controls.addView(close);close.setOnClickListener(v->stopSelf());panel.addView(controls);
@@ -90,7 +90,7 @@ public class CaptureService extends Service {
    long now=SystemClock.elapsedRealtime();if(dead||paused||!ready||!voice||ocrPending||now-lastFrame<FRAME_INTERVAL_MS)return;
    lastFrame=now;Image.Plane plane=image.getPlanes()[0];ByteBuffer buffer=plane.getBuffer();int w=image.getWidth(),h=image.getHeight();int padded=plane.getRowStride()/plane.getPixelStride();
    Bitmap full=Bitmap.createBitmap(padded,h,Bitmap.Config.ARGB_8888);full.copyPixelsFromBuffer(buffer);
-   int y=region==0?(int)(h*.65):region==1?(int)(h*.35):0;int height=Math.min((int)(h*.35),h-y);
+   int height=(int)(h*.35);int y=region==0?(int)(h*.65):region==1?(int)(h*.325):region==2?0:Math.max(0,Math.min(h-height,(int)(h*(zone/100f)-height/2f)));
    int[] loc=new int[2];panel.getLocationOnScreen(loc);Canvas canvas=new Canvas(full);Paint paint=new Paint();paint.setColor(Color.BLACK);canvas.drawRect(loc[0],loc[1],loc[0]+panel.getWidth(),loc[1]+panel.getHeight(),paint);
    Bitmap crop=Bitmap.createBitmap(full,0,y,w,height);full.recycle();
    ocrPending=true;
