@@ -94,14 +94,30 @@ public class CaptureService extends Service {
    int[] loc=new int[2];panel.getLocationOnScreen(loc);Canvas canvas=new Canvas(full);Paint paint=new Paint();paint.setColor(Color.BLACK);canvas.drawRect(loc[0],loc[1],loc[0]+panel.getWidth(),loc[1]+panel.getHeight(),paint);
    Bitmap crop=Bitmap.createBitmap(full,0,y,w,height);full.recycle();
    ocrPending=true;
-   recognizer.process(InputImage.fromBitmap(crop,0)).addOnSuccessListener(text->{if(dead)return;String value=text.getText().replaceAll("\\s+"," ").trim();String key=normalize(value);
+   recognizer.process(InputImage.fromBitmap(crop,0)).addOnSuccessListener(text->{if(dead)return;String value=selectSubtitleText(text,w,height);String key=normalize(value);
     if(key.length()<2){candidate="";stable=0;return;}
     if(key.equals(candidate))stable++;else{candidate=key;stable=1;}
-    // Two quick matching OCR frames suppress transient recognition noise. The speech queue
-    // is independent of OCR, so frames keep being read while earlier captions are spoken.
+    // Two matching OCR frames suppress transient interface labels. The queue runs separately,
+    // so screen reading continues while previous captions are being translated/spoken.
     if(stable>=2){enqueueDetected(value,key);stable=0;candidate="";}
    }).addOnFailureListener(e->{if(!dead)show("No se pudo leer la franja de subtítulos.");}).addOnCompleteListener(t->{crop.recycle();ocrPending=false;});
   }catch(Exception e){ocrPending=false;}finally{if(image!=null)image.close();}
+ }
+ private String selectSubtitleText(Text text,int imageWidth,int cropHeight){
+  ArrayList<Text.Line> lines=new ArrayList<>();
+  for(Text.TextBlock block:text.getTextBlocks())for(Text.Line line:block.getLines()){
+   String value=line.getText().replaceAll("\\s+"," ").trim();android.graphics.Rect box=line.getBoundingBox();
+   if(box==null||value.length()<2)continue;
+   if(box.width()<imageWidth*.16f||box.height()<cropHeight*.018f)continue;
+   float centerX=box.centerX();if(centerX<imageWidth*.12f||centerX>imageWidth*.88f)continue;
+   lines.add(line);
+  }
+  if(lines.isEmpty())return "";
+  int targetY=cropHeight/2;
+  Collections.sort(lines,(a,b)->Integer.compare(Math.abs(a.getBoundingBox().centerY()-targetY),Math.abs(b.getBoundingBox().centerY()-targetY)));
+  Text.Line first=lines.get(0);ArrayList<String> chosen=new ArrayList<>();chosen.add(first.getText().trim());
+  if(lines.size()>1){Text.Line second=lines.get(1);if(Math.abs(second.getBoundingBox().centerY()-first.getBoundingBox().centerY())<cropHeight*.20f)chosen.add(second.getText().trim());}
+  return String.join(" ",chosen).replaceAll("\\s+"," ").trim();
  }
  private String normalize(String value){return value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N} ]","").trim().replaceAll("\\s+"," ");}
  private void enqueueDetected(String value,String key){
