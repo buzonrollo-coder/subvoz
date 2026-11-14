@@ -1,1 +1,11 @@
+<resources>
+    <color name="icon_background">#111A3A</color>
+    <color name="brand_navy">#111A3A</color>
+    <color name="brand_cyan">#08C7E8</color>
+    <color name="brand_gold">#FFC04D</color>
+    <color name="surface">#F5F7FB</color>
+    <color name="text_primary">#182033</color>
+    <color name="text_secondary">#596579</color>
+    <color name="white">#FFFFFF</color>
+</resources>
 
