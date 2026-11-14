@@ -1,37 +1,32 @@
 # SubVoz — prototipo Android
-Lee subtítulos visibles en español o traduce inglés al español y los lee con voz local. Pensado como prueba inicial para Android 12, no como producto terminado.
+SubVoz lee subtítulos visibles en español, inglés, japonés, chino, coreano, francés o portugués. Traduce al español si el idioma elegido no es español y los lee con Text-to-Speech de Android. Esta es una prueba inicial, no una app de doblaje sincronizado.
 
-## Compilar desde un teléfono con GitHub
-1. Crea un repositorio en GitHub.
-2. Extrae el ZIP. Sube **el contenido** de la carpeta subvoz a la raíz del repositorio (no el ZIP). Deben quedar allí settings.gradle, build.gradle, app y .github.
-3. Comprueba que exista `.github/workflows/android.yml`. Algunos gestores ocultan la carpeta `.github`; si falta, crea ese archivo desde la web de GitHub y pega su contenido.
-4. Abre Actions → Crear APK. Si no se ejecuta automáticamente, pulsa Run workflow. GitHub puede requerir habilitar Actions.
-5. Cuando termine correctamente, descarga el artefacto SubVoz-APK, extrae su ZIP e instala app-debug.apk. Android pedirá permitir instalaciones desde tu navegador o gestor de archivos. Es una compilación de prueba, no una publicación en Play Store.
+## Actualizar el repositorio de GitHub desde el teléfono
+Reemplaza el contenido de estos cuatro archivos en el repositorio; conserva sus rutas:
+- `app/build.gradle`
+- `app/src/main/java/com/neko/subvoz/MainActivity.java`
+- `app/src/main/java/com/neko/subvoz/CaptureService.java`
+- `README.md`
+Cada cambio en `main` inicia GitHub Actions automáticamente. Descarga el nuevo artefacto `SubVoz-APK` solo de la ejecución que termine en verde. Desinstala la versión anterior antes de instalar la nueva si Android indica conflicto.
 
-GitHub Actions depende de las cuotas y condiciones de tu cuenta. No se ha verificado una compilación de este proyecto en Actions todavía.
+## Funciones de esta actualización
+- Selector de idioma original: español, inglés, japonés, chino, coreano, francés y portugués.
+- OCR latino para inglés, francés, portugués y español; modelos de escritura japonesa, china y coreana para los otros idiomas.
+- Cada texto debe aparecer en dos capturas cercanas para filtrar lecturas accidentales.
+- OCR sigue capturando mientras las frases anteriores se traducen y se leen. Las frases se procesan por orden, una a la vez.
+- La ventana muestra el texto actual, el tamaño de la cola y ofrece Pausar, Vaciar y Cerrar.
+- Deduplicación aproximada: no repite un texto idéntico detectado en los últimos 8 segundos.
 
 ## Uso
-- Instala/descarga una voz **española sin conexión** en los ajustes de síntesis de voz de Android.
-- Abre SubVoz, permite mostrarse sobre otras apps, elige idioma y franja e inicia.
-- La primera traducción inglés → español necesita internet para descargar modelos de ML Kit; después el procesamiento de texto es local.
-- Acepta compartir pantalla completa y abre un video no privado con subtítulos visibles.
-- Mueve la ventana arrastrando su texto; déjala fuera de los subtítulos.
-- Cierra y vuelve a iniciar al cambiar entre horizontal y vertical: este prototipo fija el tamaño de captura al iniciar.
-- Si los subtítulos quedan en las bandas negras o el video ocupa el centro, elige otra franja al reiniciar.
+- Instala una voz española sin conexión en Ajustes → Síntesis de voz. La aplicación se detiene si no encuentra una voz local compatible.
+- En SubVoz, permite superposición, elige idioma y franja, pulsa Iniciar y acepta captura de pantalla completa.
+- Abre un video de prueba con subtítulos claros. Coloca la ventana lejos del texto.
+- Inglés, japonés, chino, coreano, francés y portugués requieren internet la primera vez para descargar el modelo de traducción. ML Kit Translate ejecuta la traducción del texto en el dispositivo una vez instalado el modelo.
+- La configuración de idioma OCR/traducción se fija al iniciar la sesión; detén y vuelve a iniciar para cambiarla.
 
-## Privacidad y permisos
-La app solicita captura de pantalla y superposición; no micrófono, contactos ni almacenamiento. Procesa las imágenes en memoria, no las guarda ni incorpora código para subirlas. El SDK de Google puede acceder a internet para modelos y operaciones propias; no se promete ausencia total de telemetría del proveedor. No leas pantallas privadas durante la sesión. La notificación permite detener la captura. El motor de voz debe tener una voz local instalada; la app no leerá sin ella.
-
-## Límites y estado
-- Código inicial, **sin prueba en un dispositivo ni compilación verificada**.
-- Captura cada 1,2 segundos y exige dos lecturas iguales; frases breves pueden perderse. No ofrece sincronización exacta.
-- Mientras habla no acumula una cola; prioriza evitar retrasos largos y puede omitir frases.
-- Deduplicación básica: una frase idéntica a la última no vuelve a leerse hasta que se lea otra diferente.
-- No distingue automáticamente subtítulos de otros textos dentro de la franja.
-- Pantallas protegidas con FLAG_SECURE/DRM pueden verse negras. No se eluden esas protecciones.
-- No reconoce audio ni traduce manga en esta versión.
-- No usa claves de Google Cloud ni APIs de pago por llamada. ML Kit y el motor de voz tienen sus propias condiciones de uso.
-- targetSdk 32 para este prototipo privado de Android 12; **no cumple los requisitos actuales de publicación en Google Play**. Adaptar permisos, proyección y servicios antes de elevar el target o distribuir ampliamente.
-
-## Componentes
-Android Java, ML Kit Text Recognition (latino), ML Kit Translation inglés → español, Android TextToSpeech y MediaProjection.
+## Límites y privacidad
+- Sigue usando OCR periódico de una franja, no una pista real de subtítulos: texto muy breve, animado, borroso o parcialmente tapado puede perderse. La voz puede ir retrasada si se acumulan muchas frases; pulsa Vaciar si quieres saltar lo pendiente.
+- Solo OCR de texto latino/japonés/chino/coreano; no árabe, cirílico u otros scripts en esta versión.
+- No detecta audio, no traduce manga y no elude pantallas protegidas/DRM (que pueden verse negras).
+- Solicita permiso de captura de pantalla y superposición; no usa micrófono. Las imágenes se procesan en memoria y no se guardan ni hay código para enviarlas. Google ML Kit puede tener sus propios servicios/condiciones; no se promete ausencia total de telemetría.
+- Proyecto privado de prueba: probar en Android 12; no está preparado para publicar en Play Store.
