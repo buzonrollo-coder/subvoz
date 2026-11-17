@@ -86,3 +86,4 @@ public class MainActivity extends Activity {
  @Override protected void onDestroy(){if(tts!=null){tts.stop();tts.shutdown();}super.onDestroy();}
  @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==123&&result==RESULT_OK&&data!=null){saveVoice();Intent i=new Intent(this,CaptureService.class);i.putExtra("code",result);i.putExtra("data",data);i.putExtra("source",language.getSelectedItemPosition());i.putExtra("region",region.getSelectedItemPosition());i.putExtra("zone",prefs.getInt("zone",30));i.putExtra("style",styleSpinner.getSelectedItemPosition());i.putExtra("textSize",prefs.getInt("textSize",16));i.putExtra("rate",prefs.getInt("rate",50));i.putExtra("pitch",prefs.getInt("pitch",50));i.putExtra("voice",prefs.getString("voice",""));i.putExtra("mode",modeSpinner.getSelectedItemPosition());startForegroundService(i);}}
 }
+
