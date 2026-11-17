@@ -9,7 +9,7 @@ import android.media.*;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
-import android.media.projection.AudioPlaybackCaptureConfiguration;
+import android.media.AudioPlaybackCaptureConfiguration;
 import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.json.JSONObject;
