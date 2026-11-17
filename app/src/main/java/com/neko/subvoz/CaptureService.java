@@ -9,7 +9,7 @@ import android.media.*;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
-import android.media.AudioPlaybackCaptureConfiguration;
+import android.media.projection.AudioPlaybackCaptureConfiguration;
 import org.vosk.Model;
 import org.vosk.Recognizer;
 import org.json.JSONObject;
@@ -71,7 +71,7 @@ public class CaptureService extends Service {
   mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));if(mode==1)source=2;region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
   if(mode==0)createRecognizer();
   if(source==0){ready=true;show("Listo: subtítulos en español → voz en español.");}
-  else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Preparando traducción " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show(mode==1?"Listo. Reproduce audio japonés compatible.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");}}).addOnFailureListener(e->show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia."));}
+  else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Preparando traducción " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show(mode==1?"Listo. Reproduce audio japonés compatible.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");processSpeechQueue();}}).addOnFailureListener(e->{ready=false;show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia.");});}
   try{
    MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
    projection=manager.getMediaProjection(intent.getIntExtra("code",Activity.RESULT_CANCELED),(Intent)intent.getParcelableExtra("data"));
@@ -179,11 +179,11 @@ public class CaptureService extends Service {
   processSpeechQueue();
  }
  private void processSpeechQueue(){
-  if(dead||paused||!voice||speaking||speechQueue.isEmpty())return;
+  if(dead||paused||!ready||!voice||speaking||speechQueue.isEmpty())return;
   String original=speechQueue.poll();speaking=true;
   currentOriginal=original;
   if(source==0){recordCaption(original,original);speak(original);return;}
-  translator.translate(original).addOnSuccessListener(translated->{recordCaption(currentOriginal,translated);speak(translated);}).addOnFailureListener(e->{speaking=false;show("Falló una traducción; sigo con la siguiente frase.");processSpeechQueue();});
+  translator.translate(original).addOnSuccessListener(translated->{recordCaption(original,translated);speak(translated);}).addOnFailureListener(e->{speaking=false;String reason=e.getLocalizedMessage();show("No se tradujo esta frase"+(reason==null?".":": "+reason)+". Revisa que el modelo esté descargado.");processSpeechQueue();});
  }
  private void recordCaption(String original,String translated){
   String item=source==0?translated:original+"\n→ "+translated;
