@@ -92,6 +92,7 @@ public class CaptureService extends Service {
    try{
     voskModel=new Model(JapaneseModelStore.modelDir(this).getAbsolutePath());
     asr=new Recognizer(voskModel,16000.0f);
+    asr.setEndpointerMode(Recognizer.EndpointerMode.SHORT);
     AudioPlaybackCaptureConfiguration config=new AudioPlaybackCaptureConfiguration.Builder(projection)
       .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
       .addMatchingUsage(AudioAttributes.USAGE_GAME)
@@ -110,7 +111,8 @@ public class CaptureService extends Service {
    finally{if(asr!=null)asr.close();audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}playbackRecord.release();playbackRecord=null;} }
   },"subvoz-audio-japanese");audioThread.start();
  }
- private void postRecognizedAudio(String recognized){handler.post(()->{if(dead||paused)return;String key=normalize(recognized);if(key.length()<2)return;show("Japonés reconocido: "+recognized);enqueueDetected(recognized,key);});}
+ private void postRecognizedAudio(String recognized){handler.post(()->{if(dead||paused)return;String key=normalize(recognized);if(key.length()<2)return;show("Japonés reconocido: "+recognized);enqueueAudioResult(recognized);});}
+ private void enqueueAudioResult(String value){if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; pulsa Vaciar y retoma la reproducción.");return;}speechQueue.add(value);show("Japonés reconocido · en cola: "+speechQueue.size()+" · "+value);processSpeechQueue();}
  private void stopAudioCapture(){audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}}if(audioThread!=null)audioThread.interrupt();}
  private void createRecognizer(){
   switch(source){
