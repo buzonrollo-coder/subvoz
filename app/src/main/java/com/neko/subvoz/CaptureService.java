@@ -2,11 +2,19 @@ package com.neko.subvoz;
 
 import android.app.*;
 import android.content.*;
+import android.content.ContentValues;
 import android.graphics.*;
 import android.hardware.display.*;
 import android.media.*;
 import android.media.projection.*;
+import android.provider.MediaStore;
 import android.os.*;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.BufferedWriter;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.view.*;
@@ -31,6 +39,8 @@ public class CaptureService extends Service {
  private WindowManager wm; private LinearLayout panel; private TextView status;
  private final Handler handler=new Handler(Looper.getMainLooper());
  private final ArrayDeque<String> speechQueue=new ArrayDeque<>();
+ private final ArrayList<String> savedCaptions=new ArrayList<>();
+ private String currentOriginal="";
  private final LinkedHashMap<String,Long> recent=new LinkedHashMap<>();
  private boolean ready=false,voice=false,ocrPending=false,paused=false,dead=false,speaking=false;
  private int region=0,source=0,zone=30,style=0,textSize=16; private float speechRate=1f,speechPitch=1f; private String requestedVoice=""; private long lastFrame=0; private String candidate=""; private int stable=0;
@@ -77,6 +87,7 @@ public class CaptureService extends Service {
   status=new TextView(this);status.setTextColor(style==1?Color.rgb(24,32,51):Color.WHITE);status.setTextSize(textSize);panel.addView(status);
   LinearLayout controls=new LinearLayout(this);Button pause=new Button(this);pause.setText("Pausar");controls.addView(pause);pause.setOnClickListener(v->{paused=!paused;pause.setText(paused?"Seguir":"Pausar");if(paused){tts.stop();speaking=false;}else processSpeechQueue();});
   Button clear=new Button(this);clear.setText("Vaciar");controls.addView(clear);clear.setOnClickListener(v->{speechQueue.clear();candidate="";stable=0;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
+  Button save=new Button(this);save.setText("Guardar");controls.addView(save);save.setOnClickListener(v->saveTranscript());
   Button close=new Button(this);close.setText("Cerrar");controls.addView(close);close.setOnClickListener(v->stopSelf());panel.addView(controls);
   WindowManager.LayoutParams p=new WindowManager.LayoutParams(Math.min(620,getResources().getDisplayMetrics().widthPixels-24),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);p.gravity=Gravity.TOP|Gravity.LEFT;p.x=12;p.y=45;
   status.setOnTouchListener(new View.OnTouchListener(){float x,y;int px,py;public boolean onTouch(View v,android.view.MotionEvent e){if(e.getAction()==0){x=e.getRawX();y=e.getRawY();px=p.x;py=p.y;return true;}if(e.getAction()==2){p.x=px+(int)(e.getRawX()-x);p.y=py+(int)(e.getRawY()-y);wm.updateViewLayout(panel,p);return true;}return true;}});
@@ -132,8 +143,31 @@ public class CaptureService extends Service {
  private void processSpeechQueue(){
   if(dead||paused||!voice||speaking||speechQueue.isEmpty())return;
   String original=speechQueue.poll();speaking=true;
-  if(source==0){speak(original);return;}
-  translator.translate(original).addOnSuccessListener(this::speak).addOnFailureListener(e->{speaking=false;show("Falló una traducción; sigo con la siguiente frase.");processSpeechQueue();});
+  currentOriginal=original;
+  if(source==0){recordCaption(original,original);speak(original);return;}
+  translator.translate(original).addOnSuccessListener(translated->{recordCaption(currentOriginal,translated);speak(translated);}).addOnFailureListener(e->{speaking=false;show("Falló una traducción; sigo con la siguiente frase.");processSpeechQueue();});
+ }
+ private void recordCaption(String original,String translated){
+  String item=source==0?translated:original+"\n→ "+translated;
+  if(savedCaptions.isEmpty())savedCaptions.add("SubVoz · Transcripción de subtítulos");
+  savedCaptions.add(item);
+ }
+ private void saveTranscript(){
+  if(savedCaptions.isEmpty()){Toast.makeText(this,"Todavía no hay subtítulos para guardar.",Toast.LENGTH_SHORT).show();return;}
+  String stamp=new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date());
+  String filename="SubVoz_"+stamp+".txt";
+  ContentValues values=new ContentValues();values.put(MediaStore.MediaColumns.DISPLAY_NAME,filename);values.put(MediaStore.MediaColumns.MIME_TYPE,"text/plain");values.put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/SubVoz");values.put(MediaStore.MediaColumns.IS_PENDING,1);
+  android.net.Uri uri=null;
+  try{
+   uri=getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
+   if(uri==null)throw new java.io.IOException("No se pudo crear el archivo");
+   try(OutputStream out=getContentResolver().openOutputStream(uri);BufferedWriter writer=new BufferedWriter(new OutputStreamWriter(out,StandardCharsets.UTF_8))){
+    writer.write("SubVoz · subtítulos guardados\nIdioma original: "+LANG_NAMES[source]+"\nFecha: "+new SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.getDefault()).format(new Date())+"\n\n");
+    for(String caption:savedCaptions){writer.write(caption);writer.write("\n\n");}
+   }
+   ContentValues readyValues=new ContentValues();readyValues.put(MediaStore.MediaColumns.IS_PENDING,0);getContentResolver().update(uri,readyValues,null,null);
+   Toast.makeText(this,"Guardado en Descargas/SubVoz/"+filename,Toast.LENGTH_LONG).show();
+  }catch(Exception e){if(uri!=null)getContentResolver().delete(uri,null,null);Toast.makeText(this,"No se pudo guardar. Comprueba el espacio disponible.",Toast.LENGTH_LONG).show();}
  }
  private void speak(String value){if(dead||paused){speaking=false;return;}show(value+"\nCola: "+speechQueue.size());int result=tts.speak(value,TextToSpeech.QUEUE_FLUSH,null,"caption-"+SystemClock.elapsedRealtime());if(result==TextToSpeech.ERROR){speaking=false;show("El motor de voz no pudo leer esta frase.");processSpeechQueue();}}
  @Override public void onDestroy(){dead=true;handler.removeCallbacksAndMessages(null);if(display!=null)display.release();if(reader!=null)reader.close();if(projection!=null)projection.stop();if(panel!=null)try{wm.removeView(panel);}catch(Exception ignored){}if(recognizer!=null)recognizer.close();if(translator!=null)translator.close();if(tts!=null){tts.stop();tts.shutdown();}speechQueue.clear();super.onDestroy();}
