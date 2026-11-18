@@ -69,18 +69,20 @@ public class CaptureService extends Service {
   if(intent==null||"STOP".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(projection!=null){show("Ya hay una sesión activa. Detén antes de cambiar ajustes.");return START_NOT_STICKY;}
   mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));if(mode==1)source=2;region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
-  if(mode==0)createRecognizer();
+  createRecognizer();
   if(source==0){ready=true;show("Listo: subtítulos en español → voz en español.");}
   else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Preparando traducción " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show(mode==1?"Listo. Reproduce audio japonés compatible.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");processSpeechQueue();}}).addOnFailureListener(e->{ready=false;show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia.");});}
   try{
    MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
    projection=manager.getMediaProjection(intent.getIntExtra("code",Activity.RESULT_CANCELED),(Intent)intent.getParcelableExtra("data"));
    projection.registerCallback(new MediaProjection.Callback(){@Override public void onStop(){stopSelf();}},handler);
-   if(mode==0){android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();wm.getDefaultDisplay().getRealMetrics(metrics);
-    reader=ImageReader.newInstance(metrics.widthPixels,metrics.heightPixels,PixelFormat.RGBA_8888,3);
-    reader.setOnImageAvailableListener(r->frame(),handler);
-    display=projection.createVirtualDisplay("SubVoz",metrics.widthPixels,metrics.heightPixels,metrics.densityDpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,reader.getSurface(),null,handler);
-   }else startAudioCapture();
+   // OCR is active in both modes: in audio mode it is a fallback and shares
+   // deduplication with speech recognition so the same caption is not read twice.
+   android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();wm.getDefaultDisplay().getRealMetrics(metrics);
+   reader=ImageReader.newInstance(metrics.widthPixels,metrics.heightPixels,PixelFormat.RGBA_8888,3);
+   reader.setOnImageAvailableListener(r->frame(),handler);
+   display=projection.createVirtualDisplay("SubVoz",metrics.widthPixels,metrics.heightPixels,metrics.densityDpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,reader.getSurface(),null,handler);
+   if(mode==1)startAudioCapture();
   }catch(Exception e){show("No se pudo iniciar captura. Vuelve a abrir SubVoz.");stopSelf();}
   return START_NOT_STICKY;
  }
@@ -111,7 +113,7 @@ public class CaptureService extends Service {
    finally{if(asr!=null)asr.close();audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}playbackRecord.release();playbackRecord=null;} }
   },"subvoz-audio-japanese");audioThread.start();
  }
- private void postRecognizedAudio(String recognized){handler.post(()->{if(dead||paused)return;String key=normalize(recognized);if(key.length()<2)return;show("Japonés reconocido: "+recognized);enqueueAudioResult(recognized);});}
+ private void postRecognizedAudio(String recognized){handler.post(()->{if(dead||paused)return;String key=normalize(recognized);if(key.length()<2)return;show("Japonés reconocido: "+recognized);if(rememberUnique(key))enqueueAudioResult(recognized);});}
  private void enqueueAudioResult(String value){if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; pulsa Vaciar y retoma la reproducción.");return;}speechQueue.add(value);show("Japonés reconocido · en cola: "+speechQueue.size()+" · "+value);processSpeechQueue();}
  private void stopAudioCapture(){audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}}if(audioThread!=null)audioThread.interrupt();}
  private void createRecognizer(){
@@ -171,10 +173,19 @@ public class CaptureService extends Service {
   return String.join(" ",chosen).replaceAll("\\s+"," ").trim();
  }
  private String normalize(String value){return value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N} ]","").trim().replaceAll("\\s+"," ");}
+ private boolean rememberUnique(String key){
+  long now=SystemClock.elapsedRealtime();
+  Iterator<Map.Entry<String,Long>> it=recent.entrySet().iterator();
+  while(it.hasNext())if(now-it.next().getValue()>12000)it.remove();
+  if(recent.containsKey(key))return false;
+  recent.put(key,now);
+  while(recent.size()>32)recent.remove(recent.keySet().iterator().next());
+  return true;
+ }
  private void enqueueDetected(String value,String key){
-  long now=SystemClock.elapsedRealtime();Iterator<Map.Entry<String,Long>> it=recent.entrySet().iterator();while(it.hasNext())if(now-it.next().getValue()>8000)it.remove();
-  if(recent.containsKey(key))return;
-  recent.put(key,now);while(recent.size()>16)recent.remove(recent.keySet().iterator().next());
+  // Audio and OCR call the same deduplicator. This prevents a visible subtitle
+  // from being spoken again when the recognizer hears the same dialogue.
+  if(!rememberUnique(key))return;
   if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; se omitió un texto. Pulsa Vaciar para reiniciar.");return;}
   speechQueue.add(value);
   show("Detectado · en cola: "+speechQueue.size()+" · "+value);
