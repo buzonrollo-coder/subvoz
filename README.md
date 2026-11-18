@@ -15,7 +15,7 @@ Cada cambio en `main` inicia GitHub Actions automáticamente. Descarga el nuevo 
 - Cada texto debe aparecer en dos capturas cercanas para filtrar lecturas accidentales.
 - OCR sigue capturando mientras las frases anteriores se traducen y se leen. Las frases se procesan por orden, una a la vez.
 - La ventana muestra el texto actual, el tamaño de la cola y ofrece Pausar, Vaciar y Cerrar.
-- Deduplicación aproximada: no repite un texto idéntico detectado en los últimos 8 segundos.
+- Deduplicación compartida entre OCR y voz: evita volver a leer el mismo texto reconocido durante 12 segundos.
 
 ## Uso
 - Instala una voz española sin conexión en Ajustes → Síntesis de voz. La aplicación se detiene si no encuentra una voz local compatible.
@@ -27,6 +27,7 @@ Cada cambio en `main` inicia GitHub Actions automáticamente. Descarga el nuevo 
 ## Límites y privacidad
 - Sigue usando OCR periódico de una franja, no una pista real de subtítulos: texto muy breve, animado, borroso o parcialmente tapado puede perderse. La voz puede ir retrasada si se acumulan muchas frases; pulsa Vaciar si quieres saltar lo pendiente.
 - Solo OCR de texto latino/japonés/chino/coreano; no árabe, cirílico u otros scripts en esta versión.
-- No detecta audio, no traduce manga y no elude pantallas protegidas/DRM (que pueden verse negras).
-- Solicita permiso de captura de pantalla y superposición; no usa micrófono. Las imágenes se procesan en memoria y no se guardan ni hay código para enviarlas. Google ML Kit puede tener sus propios servicios/condiciones; no se promete ausencia total de telemetría.
+- El modo beta de audio reconoce japonés con Vosk local y usa OCR japonés como respaldo. Ambos comparten deduplicación; esto reduce repeticiones pero no garantiza que el texto idéntico no vuelva a leerse después de 12 segundos.
+- La captura interna solo funciona si el reproductor permite compartir el audio. Pantallas protegidas/DRM pueden aparecer negras. Si no aparece una transcripción de audio, prueba el lector OCR; puede seguir leyendo subtítulos visibles.
+- Solicita permiso de captura de pantalla, audio interno y superposición; no utiliza el micrófono para esta función. Audio e imágenes se procesan en el teléfono y SubVoz no incluye código para guardarlos o enviarlos. ML Kit puede tener sus propios servicios/condiciones; no se promete ausencia total de telemetría.
 - Proyecto privado de prueba: probar en Android 12; no está preparado para publicar en Play Store.
