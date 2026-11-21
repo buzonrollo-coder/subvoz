@@ -144,7 +144,7 @@ public class CaptureService extends Service {
    long now=SystemClock.elapsedRealtime();if(dead||paused||!ready||ocrPending||now-lastFrame<FRAME_INTERVAL_MS)return;
    lastFrame=now;Image.Plane plane=image.getPlanes()[0];ByteBuffer buffer=plane.getBuffer();int w=image.getWidth(),h=image.getHeight();int padded=plane.getRowStride()/plane.getPixelStride();
    Bitmap full=Bitmap.createBitmap(padded,h,Bitmap.Config.ARGB_8888);full.copyPixelsFromBuffer(buffer);
-   int height=(int)(h*.35);int y=region==0?(int)(h*.65):region==1?(int)(h*.325):region==2?0:Math.max(0,Math.min(h-height,(int)(h*(zone/100f)-height/2f)));
+   int height=(int)(h*.35);int y=region==0?(int)(h*.65):region==1?(int)(h*.325):region==2?0:Math.max(0,Math.min(h-height,(int)(h*((zone+20)/100f)-height/2f)));
    int[] loc=new int[2];panel.getLocationOnScreen(loc);Canvas canvas=new Canvas(full);Paint paint=new Paint();paint.setColor(Color.BLACK);canvas.drawRect(loc[0],loc[1],loc[0]+panel.getWidth(),loc[1]+panel.getHeight(),paint);
    Bitmap crop=Bitmap.createBitmap(full,0,y,w,height);full.recycle();
    ocrPending=true;
@@ -161,7 +161,7 @@ public class CaptureService extends Service {
   ArrayList<Text.Line> lines=new ArrayList<>();
   for(Text.TextBlock block:text.getTextBlocks())for(Text.Line line:block.getLines()){
    String value=line.getText().replaceAll("\\s+"," ").trim();android.graphics.Rect box=line.getBoundingBox();
-   if(box==null||value.length()<2)continue;
+   if(box==null||value.length()<2||looksLikePlayerUi(value))continue;
    if(box.width()<imageWidth*.08f||box.height()<cropHeight*.012f)continue;
    float centerX=box.centerX();if(centerX<imageWidth*.05f||centerX>imageWidth*.95f)continue;
    lines.add(line);
