@@ -39,7 +39,7 @@ import java.util.*;
 public class CaptureService extends Service {
  private static final String[] ML_LANG={null,TranslateLanguage.ENGLISH,TranslateLanguage.JAPANESE,TranslateLanguage.CHINESE,TranslateLanguage.KOREAN,TranslateLanguage.FRENCH,TranslateLanguage.PORTUGUESE};
  private static final String[] LANG_NAMES={"español","inglés","japonés","chino","coreano","francés","portugués"};
- private static final long FRAME_INTERVAL_MS=280;
+ private static final long FRAME_INTERVAL_MS=180;
  private static final int MAX_PENDING=30;
  private MediaProjection projection; private VirtualDisplay display; private ImageReader reader;
  private TextRecognizer recognizer; private Translator translator; private TextToSpeech tts;
@@ -149,11 +149,11 @@ public class CaptureService extends Service {
    Bitmap crop=Bitmap.createBitmap(full,0,y,w,height);full.recycle();
    ocrPending=true;
    recognizer.process(InputImage.fromBitmap(crop,0)).addOnSuccessListener(text->{if(dead)return;String value=selectSubtitleText(text,w,height);String key=normalize(value);
-    if(key.length()<2){candidate="";stable=0;return;}
+    if(key.length()<(source==2?1:2)){candidate="";stable=0;return;}
     if(key.equals(candidate))stable++;else{candidate=key;stable=1;}
     // Two matching OCR frames suppress transient interface labels. The queue runs separately,
     // so screen reading continues while previous captions are being translated/spoken.
-    if(stable>=2){enqueueDetected(value,key);stable=0;candidate="";}
+    if(stable>=1){enqueueDetected(value,key);stable=0;candidate="";}
    }).addOnFailureListener(e->{if(!dead)show("No se pudo leer la franja de subtítulos.");}).addOnCompleteListener(t->{crop.recycle();ocrPending=false;});
   }catch(Exception e){ocrPending=false;}finally{if(image!=null)image.close();}
  }
@@ -161,17 +161,21 @@ public class CaptureService extends Service {
   ArrayList<Text.Line> lines=new ArrayList<>();
   for(Text.TextBlock block:text.getTextBlocks())for(Text.Line line:block.getLines()){
    String value=line.getText().replaceAll("\\s+"," ").trim();android.graphics.Rect box=line.getBoundingBox();
-   if(box==null||value.length()<2)continue;
-   if(box.width()<imageWidth*.16f||box.height()<cropHeight*.018f)continue;
-   float centerX=box.centerX();if(centerX<imageWidth*.12f||centerX>imageWidth*.88f)continue;
+   if(box==null||value.isEmpty())continue;
+   // Short Japanese subtitle lines can be meaningful; do not require a wide line.
+   if(box.width()<imageWidth*.08f||box.height()<cropHeight*.012f)continue;
+   float centerX=box.centerX();if(centerX<imageWidth*.05f||centerX>imageWidth*.95f)continue;
    lines.add(line);
   }
   if(lines.isEmpty())return "";
   int targetY=cropHeight/2;
   Collections.sort(lines,(a,b)->Integer.compare(Math.abs(a.getBoundingBox().centerY()-targetY),Math.abs(b.getBoundingBox().centerY()-targetY)));
-  Text.Line first=lines.get(0);ArrayList<String> chosen=new ArrayList<>();chosen.add(first.getText().trim());
-  if(lines.size()>1){Text.Line second=lines.get(1);if(Math.abs(second.getBoundingBox().centerY()-first.getBoundingBox().centerY())<cropHeight*.20f)chosen.add(second.getText().trim());}
-  return String.join(" ",chosen).replaceAll("\\s+"," ").trim();
+  Text.Line anchor=lines.get(0);int anchorY=anchor.getBoundingBox().centerY();
+  ArrayList<Text.Line> chosen=new ArrayList<>();
+  for(Text.Line line:lines)if(Math.abs(line.getBoundingBox().centerY()-anchorY)<cropHeight*.30f)chosen.add(line);
+  Collections.sort(chosen,(a,b)->Integer.compare(a.getBoundingBox().centerY(),b.getBoundingBox().centerY()));
+  ArrayList<String> values=new ArrayList<>();for(Text.Line line:chosen)values.add(line.getText().trim());
+  return String.join(" ",values).replaceAll("\\s+"," ").trim();
  }
  private String normalize(String value){return value.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N} ]","").trim().replaceAll("\\s+"," ");}
  private boolean rememberUnique(String key){
