@@ -1,3 +1,6 @@
+Source: Web Fetch
+URL: https://raw.githubusercontent.com/buzonrollo-coder/subvoz/main/app/src/main/java/com/neko/subvoz/CaptureService.java
+---
 package com.neko.subvoz;
 
 import android.app.*;
@@ -48,6 +51,12 @@ public class CaptureService extends Service {
  private final Handler handler=new Handler(Looper.getMainLooper());
  private final ArrayDeque<String> speechQueue=new ArrayDeque<>();
  private final ArrayList<String> savedCaptions=new ArrayList<>();
+ private final ArrayList<CaptionRow> srtRows=new ArrayList<>();
+ private final ArrayList<String> spokenSpanish=new ArrayList<>();
+ private final LinkedHashMap<String,Long> captureTimes=new LinkedHashMap<>();
+ private long sessionStarted=0,lastSrtStart=0;
+ private boolean exporting=false;
+ private TtsMp3Exporter activeExporter;
  private String currentOriginal="";
  private final LinkedHashMap<String,Long> recent=new LinkedHashMap<>();
  private boolean ready=false,voice=false,ocrPending=false,paused=false,speaking=false;
@@ -69,6 +78,7 @@ public class CaptureService extends Service {
  @Override public int onStartCommand(Intent intent,int flags,int id){
   if(intent==null||"STOP".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(projection!=null){show("Ya hay una sesión activa. Detén antes de cambiar ajustes.");return START_NOT_STICKY;}
+  sessionStarted=SystemClock.elapsedRealtime();
   mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));if(mode==1)source=2;region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
   createRecognizer();
   if(source==0){ready=true;show("Listo: subtítulos en español → voz en español.");}
@@ -129,8 +139,10 @@ public class CaptureService extends Service {
   wm=(WindowManager)getSystemService(WINDOW_SERVICE);panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(12,8,12,8);int bg=style==1?0xF5FFFFFF:style==2?0xF5103741:0xEE20242A;panel.setBackgroundColor(bg);
   status=new TextView(this);status.setTextColor(style==1?Color.rgb(24,32,51):Color.WHITE);status.setTextSize(textSize);panel.addView(status);
   LinearLayout controls=new LinearLayout(this);Button pause=new Button(this);pause.setText("Pausar");controls.addView(pause);pause.setOnClickListener(v->{paused=!paused;pause.setText(paused?"Seguir":"Pausar");if(paused){activeOperation++;tts.stop();speaking=false;}else processSpeechQueue();});
-  Button clear=new Button(this);clear.setText("Vaciar");controls.addView(clear);clear.setOnClickListener(v->{speechQueue.clear();candidate="";stable=0;activeOperation++;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
-  Button save=new Button(this);save.setText("Guardar");controls.addView(save);save.setOnClickListener(v->saveTranscript());
+  Button clear=new Button(this);clear.setText("Vaciar");controls.addView(clear);clear.setOnClickListener(v->{speechQueue.clear();captureTimes.clear();candidate="";stable=0;activeOperation++;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
+  Button save=new Button(this);save.setText("TXT");controls.addView(save);save.setOnClickListener(v->saveTranscript());
+  Button saveSrt=new Button(this);saveSrt.setText("SRT");controls.addView(saveSrt);saveSrt.setOnClickListener(v->saveSrt());
+  Button saveMp3=new Button(this);saveMp3.setText("MP3");controls.addView(saveMp3);saveMp3.setOnClickListener(v->exportMp3());
   Button close=new Button(this);close.setText("Cerrar");controls.addView(close);close.setOnClickListener(v->stopSelf());panel.addView(controls);
   WindowManager.LayoutParams p=new WindowManager.LayoutParams(Math.min(620,getResources().getDisplayMetrics().widthPixels-24),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);p.gravity=Gravity.TOP|Gravity.LEFT;p.x=12;p.y=45;
   status.setOnTouchListener(new View.OnTouchListener(){float x,y;int px,py;public boolean onTouch(View v,android.view.MotionEvent e){if(e.getAction()==0){x=e.getRawX();y=e.getRawY();px=p.x;py=p.y;return true;}if(e.getAction()==2){p.x=px+(int)(e.getRawX()-x);p.y=py+(int)(e.getRawY()-y);wm.updateViewLayout(panel,p);return true;}return true;}});
@@ -195,6 +207,7 @@ public class CaptureService extends Service {
   // from being spoken again when the recognizer hears the same dialogue.
   if(!rememberUnique(key))return;
   if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; se omitió un texto. Pulsa Vaciar para reiniciar.");return;}
+  captureTimes.put(value,SystemClock.elapsedRealtime());
   speechQueue.add(value);
   show("Detectado · en cola: "+speechQueue.size()+" · "+value);
   processSpeechQueue();
@@ -219,10 +232,15 @@ public class CaptureService extends Service {
    show("No se tradujo esta frase"+(reason==null?".":": "+reason));processSpeechQueue();
   });
  }
+ private static final class CaptionRow { final String text; final long startMs; CaptionRow(String t,long s){text=t;startMs=s;} }
  private void recordCaption(String original,String translated){
   String item=source==0?translated:original+"\n→ "+translated;
   if(savedCaptions.isEmpty())savedCaptions.add("SubVoz · Transcripción de subtítulos");
   savedCaptions.add(item);
+  long when=captureTimes.containsKey(original)?captureTimes.remove(original):SystemClock.elapsedRealtime();
+  long rel=Math.max(0,when-sessionStarted); rel=Math.max(rel,lastSrtStart); lastSrtStart=rel;
+  srtRows.add(new CaptionRow(translated,rel));
+  if(translated!=null&&!translated.trim().isEmpty())spokenSpanish.add(translated.trim());
  }
  private void saveTranscript(){
   if(savedCaptions.isEmpty()){Toast.makeText(this,"Todavía no hay subtítulos para guardar.",Toast.LENGTH_SHORT).show();return;}
@@ -241,6 +259,40 @@ public class CaptureService extends Service {
    Toast.makeText(this,"Guardado en Descargas/SubVoz/"+filename,Toast.LENGTH_LONG).show();
   }catch(Exception e){if(uri!=null)getContentResolver().delete(uri,null,null);Toast.makeText(this,"No se pudo guardar. Comprueba el espacio disponible.",Toast.LENGTH_LONG).show();}
  }
+ private void saveSrt(){
+  if(srtRows.isEmpty()){Toast.makeText(this,"Todavía no hay subtítulos capturados para SRT.",Toast.LENGTH_SHORT).show();return;}
+  ArrayList<CaptionRow> snapshot=new ArrayList<>(srtRows); long base=sessionStarted;
+  String stamp=new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date()); String name="SubVoz_"+stamp+".srt";
+  android.net.Uri uri=null;
+  try{
+   ContentValues values=new ContentValues();values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);values.put(MediaStore.MediaColumns.MIME_TYPE,"application/x-subrip");values.put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/SubVoz");values.put(MediaStore.MediaColumns.IS_PENDING,1);
+   uri=getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);if(uri==null)throw new java.io.IOException("No se pudo crear el archivo");
+   try(OutputStream out=getContentResolver().openOutputStream(uri);BufferedWriter w=new BufferedWriter(new OutputStreamWriter(out,StandardCharsets.UTF_8))){
+    
+    for(int i=0;i<snapshot.size();i++){CaptionRow r=snapshot.get(i);long start=r.startMs;long duration=Math.max(1200,Math.min(5000,r.text.length()*55L));long end=start+duration;if(i+1<snapshot.size())end=Math.min(end,Math.max(start+500,snapshot.get(i+1).startMs));if(end<=start)end=start+1000;
+     w.write(Integer.toString(i+1));w.write("\r\n");w.write(srtTime(start));w.write(" --> ");w.write(srtTime(end));w.write("\r\n");w.write(r.text.replace("\n"," ").replace("\r"," "));w.write("\r\n\r\n");}
+   }
+   ContentValues ready=new ContentValues();ready.put(MediaStore.MediaColumns.IS_PENDING,0);getContentResolver().update(uri,ready,null,null);Toast.makeText(this,"SRT guardado en Descargas/SubVoz/"+name,Toast.LENGTH_LONG).show();
+  }catch(Exception e){if(uri!=null)getContentResolver().delete(uri,null,null);Toast.makeText(this,"No se pudo guardar el SRT.",Toast.LENGTH_LONG).show();}
+ }
+ private String srtTime(long ms){long h=ms/3600000;long m=(ms%3600000)/60000;long s=(ms%60000)/1000;long x=ms%1000;return String.format(Locale.US,"%02d:%02d:%02d,%03d",h,m,s,x);}
+ private void exportMp3(){
+  if(exporting){Toast.makeText(this,"Ya se está generando el MP3.",Toast.LENGTH_SHORT).show();return;}
+  if(spokenSpanish.isEmpty()){Toast.makeText(this,"Todavía no hay frases españolas capturadas.",Toast.LENGTH_SHORT).show();return;}
+  final ArrayList<String> snapshot=new ArrayList<>(spokenSpanish);final long started=SystemClock.elapsedRealtime();
+  exporting=true;show("Generando MP3 español desde las frases capturadas…");
+  final TextToSpeech[] engine={null};
+  engine[0]=new TextToSpeech(this,result->{
+   if(dead){if(engine[0]!=null)engine[0].shutdown();return;}
+   if(result!=TextToSpeech.SUCCESS){exporting=false;show("No se pudo iniciar TTS para MP3.");if(engine[0]!=null)engine[0].shutdown();return;}
+   try{int support=engine[0].setLanguage(new Locale("es"));if(support==TextToSpeech.LANG_MISSING_DATA||support==TextToSpeech.LANG_NOT_SUPPORTED)throw new IllegalStateException("Voz española no disponible.");
+    if(!requestedVoice.isEmpty()&&engine[0].getVoices()!=null)for(android.speech.tts.Voice v:engine[0].getVoices())if(v.getName().equals(requestedVoice)){engine[0].setVoice(v);break;}
+    engine[0].setSpeechRate(speechRate);engine[0].setPitch(speechPitch);
+    TtsMp3Exporter exporter=new TtsMp3Exporter(CaptureService.this,engine[0],snapshot,(ok,msg)->{exporting=false;activeExporter=null;engine[0].shutdown();if(!dead)show(msg);});
+    activeExporter=exporter;engine[0].setOnUtteranceProgressListener(exporter);exporter.start();
+   }catch(Throwable e){exporting=false;engine[0].shutdown();show(e.getMessage()==null?"No se pudo crear el MP3.":e.getMessage());}
+  });
+ }
  private void speak(String value,long operation){
   if(dead||paused||activeOperation!=operation)return;
   if(!voice){show(value+"\nVoz española no disponible · sin audio");speaking=false;activeOperation++;handler.postDelayed(()->processSpeechQueue(),2500);return;}
@@ -249,5 +301,5 @@ public class CaptureService extends Service {
   if(result==TextToSpeech.ERROR){speaking=false;activeOperation++;show("El motor de voz no pudo leer esta frase.");processSpeechQueue();}
  }
 
- @Override public void onDestroy(){dead=true;handler.removeCallbacksAndMessages(null);stopAudioCapture();if(display!=null)display.release();if(reader!=null)reader.close();if(projection!=null)projection.stop();if(panel!=null)try{wm.removeView(panel);}catch(Exception ignored){}if(recognizer!=null)recognizer.close();if(translator!=null)translator.close();if(voskModel!=null)voskModel.close();if(tts!=null){tts.stop();tts.shutdown();}speechQueue.clear();super.onDestroy();}
+ @Override public void onDestroy(){dead=true;handler.removeCallbacksAndMessages(null);stopAudioCapture();if(display!=null)display.release();if(reader!=null)reader.close();if(projection!=null)projection.stop();if(panel!=null)try{wm.removeView(panel);}catch(Exception ignored){}if(recognizer!=null)recognizer.close();if(translator!=null)translator.close();if(voskModel!=null)voskModel.close();if(activeExporter!=null)activeExporter.cancel();if(tts!=null){tts.stop();tts.shutdown();}speechQueue.clear();super.onDestroy();}
 }
