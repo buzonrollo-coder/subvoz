@@ -1,6 +1,3 @@
-Source: Web Fetch
-URL: https://raw.githubusercontent.com/buzonrollo-coder/subvoz/main/app/src/main/java/com/neko/subvoz/CaptureService.java
----
 package com.neko.subvoz;
 
 import android.app.*;
