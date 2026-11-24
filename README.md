@@ -6,7 +6,7 @@ SubVoz lee texto de subtítulos que se ve en pantalla, opcionalmente lo traduce 
 
 - OCR de subtítulos visibles en español, inglés, japonés, chino, coreano, francés o portugués. Para idiomas distintos de español intenta traducir al español con ML Kit.
 - El texto detectado se confirma en capturas consecutivas y se pone en una cola limitada. El modo beta de audio sigue usando Vosk para reconocimiento japonés local, si el reproductor permite captura.
-- La ventana flotante conserva Pausar, Vaciar y Cerrar. También incluye exportación TXT, SRT y MP3.
+- La ventana flotante separa los controles de lectura (Pausar/Seguir, Vaciar y Cerrar) de los botones de archivo **Guardar TXT**, **Guardar SRT** y **Guardar MP3**. El panel moderno se adapta al ancho de pantalla; toca y arrastra el encabezado «SubVoz · Mantén aquí para mover». El OCR excluye el rectángulo completo del panel.
 - Perfiles de voz: **Natural**, **Tranquila**, **Enérgica**, **Grave/seria** y **Personalizada**. Son combinaciones de velocidad y tono de Android TTS, no promesas de emoción. Se conserva el selector de voz española instalada y el ajuste manual de velocidad y tono. El perfil/voz elegido se utiliza en lectura en vivo y en la generación de MP3.
 - SRT usa el texto español que se leyó (directo o traducido), índices secuenciales y tiempos estimados monotónicos relativos al inicio de la sesión.
 - El MP3 es audio codificado realmente como MP3 a partir de una nueva síntesis TTS de las frases españolas capturadas; no es una grabación del audio que ya se reprodujo.
@@ -14,8 +14,8 @@ SubVoz lee texto de subtítulos que se ve en pantalla, opcionalmente lo traduce 
 ## Uso e instalación
 
 1. Instala una voz española en Ajustes de Android → Síntesis de voz. Si quieres que lectura y exportación no dependan de red, selecciona una voz marcada «sin conexión» y comprueba que funcione con «Escuchar voz de prueba». La disponibilidad depende del motor y las voces del teléfono.
-2. En SubVoz, concede el permiso de ventana flotante. Elige idioma, zona y voz/perfil; inicia la captura y acepta la pantalla compartida.
-3. Abre un video con subtítulos visibles y coloca la ventana flotante lejos de ellos. Exporta desde esa ventana y guarda los archivos antes de cerrar la sesión.
+2. En SubVoz, usa los accesos **Lectura**, **Voz**, **Zona** y **Permisos** para saltar por los ajustes. Concede el permiso de ventana flotante; elige idioma, zona y voz/perfil; inicia la captura y acepta la pantalla compartida.
+3. Abre un video con subtítulos visibles y coloca la ventana flotante lejos de ellos arrastrándola desde el encabezado. En la propia ventana, bajo «Guardar archivo», pulsa **Guardar TXT**, **Guardar SRT** o **Guardar MP3**. Guarda los archivos antes de cerrar la sesión.
 4. Busca tus archivos en **Descargas/SubVoz**. Android puede mostrar esa carpeta con otro nombre localizado.
 5. Para instalar la APK de GitHub Actions, descarga `SubVoz-APK` de una ejecución verde. En Android puede ser necesario permitir temporalmente instalar aplicaciones desde el navegador/gestor de archivos. Si Android avisa de firma incompatible, desinstala primero la versión anterior.
 
