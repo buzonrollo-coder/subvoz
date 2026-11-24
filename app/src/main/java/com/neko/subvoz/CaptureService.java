@@ -133,18 +133,32 @@ public class CaptureService extends Service {
   }
  }
  private void overlay(){
-  wm=(WindowManager)getSystemService(WINDOW_SERVICE);panel=new LinearLayout(this);panel.setOrientation(1);panel.setPadding(12,8,12,8);int bg=style==1?0xF5FFFFFF:style==2?0xF5103741:0xEE20242A;panel.setBackgroundColor(bg);
-  status=new TextView(this);status.setTextColor(style==1?Color.rgb(24,32,51):Color.WHITE);status.setTextSize(textSize);panel.addView(status);
-  LinearLayout controls=new LinearLayout(this);Button pause=new Button(this);pause.setText("Pausar");controls.addView(pause);pause.setOnClickListener(v->{paused=!paused;pause.setText(paused?"Seguir":"Pausar");if(paused){activeOperation++;tts.stop();speaking=false;}else processSpeechQueue();});
-  Button clear=new Button(this);clear.setText("Vaciar");controls.addView(clear);clear.setOnClickListener(v->{speechQueue.clear();captureTimes.clear();candidate="";stable=0;activeOperation++;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
-  Button save=new Button(this);save.setText("TXT");controls.addView(save);save.setOnClickListener(v->saveTranscript());
-  Button saveSrt=new Button(this);saveSrt.setText("SRT");controls.addView(saveSrt);saveSrt.setOnClickListener(v->saveSrt());
-  Button saveMp3=new Button(this);saveMp3.setText("MP3");controls.addView(saveMp3);saveMp3.setOnClickListener(v->exportMp3());
-  Button close=new Button(this);close.setText("Cerrar");controls.addView(close);close.setOnClickListener(v->stopSelf());panel.addView(controls);
-  WindowManager.LayoutParams p=new WindowManager.LayoutParams(Math.min(620,getResources().getDisplayMetrics().widthPixels-24),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);p.gravity=Gravity.TOP|Gravity.LEFT;p.x=12;p.y=45;
-  status.setOnTouchListener(new View.OnTouchListener(){float x,y;int px,py;public boolean onTouch(View v,android.view.MotionEvent e){if(e.getAction()==0){x=e.getRawX();y=e.getRawY();px=p.x;py=p.y;return true;}if(e.getAction()==2){p.x=px+(int)(e.getRawX()-x);p.y=py+(int)(e.getRawY()-y);wm.updateViewLayout(panel,p);return true;}return true;}});
+  wm=(WindowManager)getSystemService(WINDOW_SERVICE);
+  int navy=Color.rgb(13,28,43),surface=Color.rgb(24,45,59),teal=Color.rgb(20,184,166),muted=Color.rgb(174,198,210);
+  panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(12));panel.setBackground(rounded(navy,18));panel.setElevation(dp(10));
+  LinearLayout header=new LinearLayout(this);header.setOrientation(LinearLayout.VERTICAL);header.setPadding(dp(12),dp(9),dp(12),dp(9));header.setBackground(rounded(surface,13));
+  TextView handle=new TextView(this);handle.setText("SUBVOZ  ·  MANTÉN AQUÍ PARA MOVER");handle.setTextColor(teal);handle.setTextSize(10);handle.setTypeface(null,android.graphics.Typeface.BOLD);header.addView(handle);
+  status=new TextView(this);status.setTextColor(Color.WHITE);status.setTextSize(Math.max(13,Math.min(textSize,18)));status.setMaxLines(3);status.setEllipsize(android.text.TextUtils.TruncateAt.END);LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-1,-2);slp.topMargin=dp(4);header.addView(status,slp);panel.addView(header,new LinearLayout.LayoutParams(-1,-2));
+  TextView actionsLabel=overlayLabel("LECTURA",muted);LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(-1,-2);alp.topMargin=dp(9);panel.addView(actionsLabel,alp);
+  LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams clp=new LinearLayout.LayoutParams(-1,-2);clp.topMargin=dp(4);panel.addView(controls,clp);
+  TextView pause=overlayAction("Pausar",surface,Color.WHITE);addOverlayItem(controls,pause,true);pause.setOnClickListener(v->{paused=!paused;pause.setText(paused?"Seguir":"Pausar");if(paused){activeOperation++;tts.stop();speaking=false;}else processSpeechQueue();});
+  TextView clear=overlayAction("Vaciar",surface,Color.WHITE);addOverlayItem(controls,clear,false);clear.setOnClickListener(v->{speechQueue.clear();captureTimes.clear();candidate="";stable=0;activeOperation++;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
+  TextView close=overlayAction("Cerrar",0xFF783C4A,Color.WHITE);addOverlayItem(controls,close,false);close.setOnClickListener(v->stopSelf());
+  TextView exportLabel=overlayLabel("GUARDAR ARCHIVO",muted);LinearLayout.LayoutParams elp=new LinearLayout.LayoutParams(-1,-2);elp.topMargin=dp(9);panel.addView(exportLabel,elp);
+  LinearLayout exports=new LinearLayout(this);exports.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams exp=new LinearLayout.LayoutParams(-1,-2);exp.topMargin=dp(4);panel.addView(exports,exp);
+  LinearLayout exportRow=new LinearLayout(this);exports.addView(exportRow,new LinearLayout.LayoutParams(-1,-2));
+  TextView saveSrt=overlayAction("Guardar SRT",0xFF176E70,Color.WHITE);addOverlayItem(exportRow,saveSrt,true);saveSrt.setOnClickListener(v->saveSrt());
+  TextView saveMp3=overlayAction("Guardar MP3",0xFF176E70,Color.WHITE);addOverlayItem(exportRow,saveMp3,false);saveMp3.setOnClickListener(v->exportMp3());
+  TextView save=overlayAction("Guardar TXT",0xFF176E70,Color.WHITE);LinearLayout.LayoutParams txp=new LinearLayout.LayoutParams(-1,dp(48));txp.topMargin=dp(5);exports.addView(save,txp);save.setOnClickListener(v->saveTranscript());
+  WindowManager.LayoutParams p=new WindowManager.LayoutParams(Math.min(dp(380),getResources().getDisplayMetrics().widthPixels-dp(24)),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);p.gravity=Gravity.TOP|Gravity.LEFT;p.x=dp(12);p.y=dp(48);
+  header.setOnTouchListener(new View.OnTouchListener(){float x,y;int px,py;public boolean onTouch(View v,android.view.MotionEvent e){if(e.getAction()==MotionEvent.ACTION_DOWN){x=e.getRawX();y=e.getRawY();px=p.x;py=p.y;return true;}if(e.getAction()==MotionEvent.ACTION_MOVE){int maxX=Math.max(0,getResources().getDisplayMetrics().widthPixels-panel.getWidth());int maxY=Math.max(0,getResources().getDisplayMetrics().heightPixels-panel.getHeight());p.x=Math.max(0,Math.min(maxX,px+(int)(e.getRawX()-x)));p.y=Math.max(0,Math.min(maxY,py+(int)(e.getRawY()-y)));wm.updateViewLayout(panel,p);return true;}return e.getAction()==MotionEvent.ACTION_UP||e.getAction()==MotionEvent.ACTION_CANCEL;}});
   wm.addView(panel,p);
  }
+ private int dp(float value){return (int)(value*getResources().getDisplayMetrics().density+0.5f);}
+ private android.graphics.drawable.GradientDrawable rounded(int color,int radius){android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
+ private TextView overlayLabel(String text,int color){TextView v=new TextView(this);v.setText(text);v.setTextColor(color);v.setTextSize(10);v.setTypeface(null,android.graphics.Typeface.BOLD);return v;}
+ private TextView overlayAction(String text,int color,int textColor){TextView v=new TextView(this);v.setText(text);v.setTextColor(textColor);v.setTextSize(12);v.setTypeface(null,android.graphics.Typeface.BOLD);v.setGravity(Gravity.CENTER);v.setPadding(dp(3),0,dp(3),0);v.setMinHeight(dp(48));v.setBackground(rounded(color,12));v.setClickable(true);v.setFocusable(true);v.setContentDescription(text);return v;}
+ private void addOverlayItem(LinearLayout row,View item,boolean first){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1);if(!first)lp.leftMargin=dp(6);row.addView(item,lp);}
  private void show(String text){handler.post(()->{if(!dead && status!=null)status.setText(text);});}
  private void frame(){
   Image image=null;
