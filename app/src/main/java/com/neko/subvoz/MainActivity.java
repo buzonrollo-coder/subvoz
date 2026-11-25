@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
   if(archiveList==null)return;archiveList.removeAllViews();
   if(android.os.Build.VERSION.SDK_INT<29){addArchiveMessage("La lista de archivos de Descargas requiere Android 10 o posterior.");return;}
   String[] columns={MediaStore.Files.FileColumns._ID,MediaStore.Files.FileColumns.DISPLAY_NAME,MediaStore.Files.FileColumns.MIME_TYPE,MediaStore.Files.FileColumns.DATE_MODIFIED,MediaStore.Files.FileColumns.RELATIVE_PATH};
-  String selection=MediaStore.Files.FileColumns.RELATIVE_PATH+" LIKE ? AND ("+MediaStore.Files.FileColumns.DISPLAY_NAME+" LIKE ? OR "+MediaStore.Files.FileColumns.DISPLAY_NAME+" LIKE ? OR "+MediaStore.Files.FileColumns.DISPLAY_NAME+" LIKE ?)");
+  String selection=MediaStore.Files.FileColumns.RELATIVE_PATH+" LIKE ? AND ("+MediaStore.Files.FileColumns.DISPLAY_NAME+" LIKE ? OR "+MediaStore.Files.FileColumns.DISPLAY_NAME+" LIKE ? OR "+MediaStore.Files.FileColumns.DISPLAY_NAME+" LIKE ?)";
   String[] args={"%SubVoz%","%.srt","%.txt","%.mp3"};int found=0;
   try(Cursor c=getContentResolver().query(MediaStore.Files.getContentUri("external"),columns,selection,args,MediaStore.Files.FileColumns.DATE_MODIFIED+" DESC")){
    if(c!=null){int idCol=c.getColumnIndex(MediaStore.Files.FileColumns._ID),nameCol=c.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME),mimeCol=c.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE),dateCol=c.getColumnIndex(MediaStore.Files.FileColumns.DATE_MODIFIED),pathCol=c.getColumnIndex(MediaStore.Files.FileColumns.RELATIVE_PATH);
