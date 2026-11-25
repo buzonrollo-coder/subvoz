@@ -2,7 +2,6 @@ package com.neko.subvoz;
 
 import android.content.ContentValues;
 import android.content.Context;
-import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
@@ -103,9 +102,9 @@ final class TtsMp3Exporter extends UtteranceProgressListener {
                     WavInfo info = encodeWav(wavFile, out, lame);
                     if (lame == null) {
                         LameBuilder builder = new LameBuilder().setInSampleRate(info.sampleRate).setOutSampleRate(info.sampleRate)
-                                .setOutChannels(1).setOutBitrate(64).setQuality(5);
+                                .setOutChannels(1).setMode(LameBuilder.Mode.MONO).setOutBitrate(128).setQuality(2);
                         lame = builder.build();
-                        // The first WAV is streamed again below, after the encoder has been initialized.
+                        // Header-only probe above discovers the source rate; now encode the first WAV once.
                         encodeWav(wavFile, out, lame);
                     } else if (info.sampleRate != currentSampleRate) {
                         throw new IOException("La voz cambió de frecuencia de muestreo durante la exportación.");
@@ -120,7 +119,7 @@ final class TtsMp3Exporter extends UtteranceProgressListener {
             checkCancelled();
             if (mp3.length() < 100) throw new IOException("El codificador no produjo un MP3 válido.");
             saveToDownloads(mp3);
-            success = true; message = "MP3 guardado en Descargas/SubVoz. Se generó de nuevo desde el texto con la voz española de Android.";
+            success = true; message = "MP3 guardado en Descargas/SubVoz (mono, 128 kb/s). Se generó de nuevo desde el texto con la voz española de Android.";
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); message = "Exportación cancelada."; }
           catch (Throwable e) { message = e.getMessage() == null ? "No se pudo generar el MP3." : e.getMessage(); }
         finally {
@@ -131,7 +130,7 @@ final class TtsMp3Exporter extends UtteranceProgressListener {
             main.post(() -> listener.finished(ok, resultMessage));
         }
     }
-    // Used only to preserve a constant source rate across short per-phrase WAVs.
+    // Preserve one constant source rate across short per-phrase WAVs.
     private int currentSampleRate = -1;
     private void checkCancelled() throws IOException { if (cancelled) throw new IOException("Exportación cancelada."); }
 
@@ -159,8 +158,10 @@ final class TtsMp3Exporter extends UtteranceProgressListener {
                 throw new IOException("Este motor generó WAV no compatible (se requiere PCM 16-bit mono/estéreo).");
             if (currentSampleRate < 0) currentSampleRate = rate;
             if (rate != currentSampleRate) throw new IOException("La voz cambió de frecuencia de muestreo durante la exportación.");
+            // On the first phrase inspect only the header; avoid a discarded PCM conversion pass.
+            if (encoder == null) return new WavInfo(rate, channels);
             long bytesLeft = dataLen; raf.seek(dataAt);
-            byte[] raw = new byte[8192]; short[] mono = new short[4096]; short[] right = new short[4096]; byte[] encoded = new byte[12400];
+            byte[] raw = new byte[8192]; short[] mono = new short[4096]; byte[] encoded = new byte[12400];
             while (bytesLeft >= channels * 2L) {
                 checkCancelled();
                 int bytes = (int)Math.min(raw.length, bytesLeft); bytes -= bytes % (channels * 2);
@@ -173,13 +174,11 @@ final class TtsMp3Exporter extends UtteranceProgressListener {
                     if (channels == 2) { short r = (short)((raw[off + 2] & 255) | (raw[off + 3] << 8)); mono[i] = (short)(((int)left + r) / 2); }
                     else mono[i] = left;
                 }
-                if (encoder != null) { int n = encoder.encodeBufferInterLeaved(mono, frames, encoded); if (n > 0) out.write(encoded, 0, n); }
+                int n = encoder.encodeBufferInterLeaved(mono, frames, encoded); if (n > 0) out.write(encoded, 0, n);
             }
-            // Encoder is initialized only after discovering the WAV's format. The first pass must only inspect its header.
             return new WavInfo(rate, channels);
         }
     }
-    private static int currentSampleRateStatic;
     private static boolean ascii(byte[] b, int at, String s) { for (int i=0;i<s.length();i++) if (b[at+i] != (byte)s.charAt(i)) return false; return true; }
     private static int u16(byte[] b, int p) { return (b[p]&255) | ((b[p+1]&255)<<8); }
     private static long u32(byte[] b, int p) { return (b[p]&255L)|((b[p+1]&255L)<<8)|((b[p+2]&255L)<<16)|((b[p+3]&255L)<<24); }
