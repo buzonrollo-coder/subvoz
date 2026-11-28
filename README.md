@@ -5,7 +5,7 @@ SubVoz lee texto de subtítulos que se ve en pantalla, opcionalmente lo traduce 
 ## Funciones
 
 - OCR de subtítulos visibles en español, inglés, japonés, chino, coreano, francés o portugués. Para idiomas distintos de español intenta traducir al español con ML Kit.
-- El texto detectado se confirma en capturas consecutivas y se pone en una cola limitada. El modo beta de audio sigue usando Vosk para reconocimiento japonés local, si el reproductor permite captura.
+- El texto detectado se confirma en capturas consecutivas y se pone en una cola limitada. El modo beta de audio reconoce español, inglés (EE. UU.), japonés, francés o portugués con modelos pequeños oficiales de Vosk. El idioma del audio se selecciona por separado del idioma de los subtítulos visibles; el modelo elegido se descarga a demanda y el reconocimiento se ejecuta localmente.
 - La ventana flotante separa los controles de lectura (Pausar/Seguir, Vaciar y Cerrar) de los botones de archivo **Guardar TXT**, **Guardar SRT** y **Guardar MP3**. El panel moderno se adapta al ancho de pantalla; toca y arrastra el encabezado «SubVoz · Mantén aquí para mover». El OCR excluye el rectángulo completo del panel.
 - Perfiles de voz: **Natural**, **Tranquila**, **Enérgica**, **Grave/seria** y **Personalizada**. Son combinaciones de velocidad y tono de Android TTS, no promesas de emoción. Se conserva el selector de voz española instalada y el ajuste manual de velocidad y tono. El perfil/voz elegido se utiliza en lectura en vivo y en la generación de MP3.
 - SRT usa el texto español que se leyó (directo o traducido), índices secuenciales y tiempos estimados monotónicos relativos al inicio de la sesión.
@@ -19,7 +19,7 @@ SubVoz lee texto de subtítulos que se ve en pantalla, opcionalmente lo traduce 
 4. Busca tus archivos en **Descargas/SubVoz**. Android puede mostrar esa carpeta con otro nombre localizado.
 5. Para instalar la APK de GitHub Actions, descarga `SubVoz-APK` de una ejecución verde. En Android puede ser necesario permitir temporalmente instalar aplicaciones desde el navegador/gestor de archivos. Si Android avisa de firma incompatible, desinstala primero la versión anterior.
 
-Los modelos de traducción para idiomas distintos del español pueden requerir una descarga inicial de Internet. ML Kit realiza la traducción local después de descargar el modelo. El modo de audio japonés requiere además descargar su modelo local.
+Para usar el modo de audio, selecciona el idioma hablado en **Leer** y descarga ese modelo desde **Ajustes** antes de iniciar la captura. Los modelos Vosk ocupan aproximadamente 31–50 MB y no vienen dentro de la APK; puedes borrar el modelo local desde Ajustes. El reconocimiento Vosk funciona sin conexión después de descargarlo. Los modelos de traducción de ML Kit para los idiomas que conviertes al español pueden requerir una descarga inicial de Internet; ML Kit traduce localmente después de descargar el modelo.
 
 ## Qué guardan las exportaciones
 
@@ -30,7 +30,7 @@ Los modelos de traducción para idiomas distintos del español pueden requerir u
 
 ## Privacidad, compatibilidad y límites
 
-- SubVoz no incluye código que suba o guarde capturas de texto o audio. OCR, archivos temporales de MP3 y codificación se procesan en el dispositivo. Sin embargo, un motor/voz TTS de Android elegido por el usuario podría usar un servicio de red según su propia configuración; para más privacidad, usa una voz descargada sin conexión. Las descargas iniciales de modelos requieren red. No se garantiza el comportamiento o la telemetría de aplicaciones de terceros.
+- SubVoz no incluye código que suba o guarde capturas de texto o audio. El reconocimiento de voz Vosk, OCR, traducción ML Kit (después de descargar sus modelos), archivos temporales de MP3 y codificación se procesan en el dispositivo. El audio capturado no se guarda como grabación. Las descargas iniciales de modelos Vosk y traducción requieren red. Un motor/voz TTS de Android elegido por el usuario podría usar un servicio de red según su propia configuración; para más privacidad, usa una voz descargada sin conexión. No se garantiza el comportamiento o la telemetría de aplicaciones de terceros.
 - El lector usa OCR de una franja de pantalla, no la pista de subtítulos del video. Texto borroso, breve, animado, tapado o fuera de la franja puede perderse; la ventana puede tapar texto si se superpone. Contenido DRM/protegido puede aparecer negro. Pausas y búsquedas del reproductor no controlan ni sincronizan SubVoz.
 - La captura de audio interno depende de Android y del reproductor, y solo funciona con audio compartible; no usa el micrófono para esa función.
 - Perfiles son controles sencillos de rate/pitch. No crean actuación emocional real y la sensación de voz grave/natural depende de la voz española elegida y del motor TTS instalado. El motor podría no admitir todas las tasas o pitches igual.
