@@ -10,7 +10,7 @@ import java.util.zip.ZipInputStream;
 /** On-demand installer for official Vosk small mobile models. Model files stay in app-private storage. */
 public final class OfflineSpeechModelStore {
  public static final String[] IDS={"es","en","ja","fr","pt"};
- public static final String[] NAMES={"Español","English (EE. UU.)","日本語","Français","Português (Brasil)"};
+ public static final String[] NAMES={"Español","Inglés (EE. UU.)","Japonés","Francés","Portugués (Brasil)"};
  public static final String[] URLS={
   "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip",
   "https://alphacephei.com/vosk/models/vosk-model-small-en-us-zamia-0.5.zip",

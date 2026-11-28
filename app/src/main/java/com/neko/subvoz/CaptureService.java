@@ -42,11 +42,12 @@ public class CaptureService extends Service {
  private static final long FRAME_INTERVAL_MS=280;
  private static final int MAX_PENDING=30;
  private MediaProjection projection; private VirtualDisplay display; private ImageReader reader;
- private TextRecognizer recognizer; private Translator translator; private TextToSpeech tts;
- private volatile boolean audioRunning=false; private AudioRecord playbackRecord; private Thread audioThread; private Model voskModel; private int mode=0,audioModelIndex=2;
+ private TextRecognizer recognizer; private Translator translator,audioTranslator; private TextToSpeech tts;
+ private volatile boolean audioRunning=false; private AudioRecord playbackRecord; private Thread audioThread; private Model voskModel; private int mode=0,audioModelIndex=2,audioSource=2;
  private WindowManager wm; private LinearLayout panel; private TextView status;
  private final Handler handler=new Handler(Looper.getMainLooper());
  private final ArrayDeque<String> speechQueue=new ArrayDeque<>();
+ private final HashSet<String> audioQueueKeys=new HashSet<>();
  private final ArrayList<String> savedCaptions=new ArrayList<>();
  private final ArrayList<CaptionRow> srtRows=new ArrayList<>();
  private final ArrayList<String> spokenSpanish=new ArrayList<>();
@@ -76,10 +77,13 @@ public class CaptureService extends Service {
   if(intent==null||"STOP".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(projection!=null){show("Ya hay una sesión activa. Detén antes de cambiar ajustes.");return START_NOT_STICKY;}
   sessionStarted=SystemClock.elapsedRealtime();
-  mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));audioModelIndex=Math.max(0,Math.min(4,intent.getIntExtra("audioLang",2)));if(mode==1){int[] sourceForAudio={0,1,2,5,6};source=sourceForAudio[audioModelIndex];}region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
+  mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));audioModelIndex=Math.max(0,Math.min(4,intent.getIntExtra("audioLang",2)));int[] sourceForAudio={0,1,2,5,6};audioSource=sourceForAudio[audioModelIndex];region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
   createRecognizer();
-  if(source==0){ready=true;show("Listo: subtítulos en español → voz en español.");}
-  else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Preparando traducción " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show(mode==1?"Listo. Reproduce audio en "+LANG_NAMES[source]+" compatible.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");processSpeechQueue();}}).addOnFailureListener(e->{ready=false;show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia.");});}
+  int needed=(source>0?1:0)+(mode==1&&audioSource>0?1:0);pendingTranslatorModels=needed;ready=needed==0;
+  if(source>0){translator=makeTranslator(source);translator.downloadModelIfNeeded().addOnSuccessListener(v->translationModelFinished(true)).addOnFailureListener(e->translationModelFinished(false));}
+  if(mode==1&&audioSource>0){audioTranslator=makeTranslator(audioSource);audioTranslator.downloadModelIfNeeded().addOnSuccessListener(v->translationModelFinished(true)).addOnFailureListener(e->translationModelFinished(false));}
+  if(needed==0){show(source==0?"Listo: español en pantalla → voz en español.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");}
+  else show("Preparando traducción local necesaria para la sesión…");
   try{
    MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
    projection=manager.getMediaProjection(intent.getIntExtra("code",Activity.RESULT_CANCELED),(Intent)intent.getParcelableExtra("data"));
@@ -94,6 +98,9 @@ public class CaptureService extends Service {
   }catch(Exception e){show("No se pudo iniciar captura. Vuelve a abrir SubVoz.");stopSelf();}
   return START_NOT_STICKY;
  }
+ private int pendingTranslatorModels=0; private boolean translatorModelFailed=false;
+ private Translator makeTranslator(int lang){return Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[lang]).setTargetLanguage(TranslateLanguage.SPANISH).build());}
+ private void translationModelFinished(boolean success){if(dead)return;if(!success)translatorModelFailed=true;pendingTranslatorModels--;if(pendingTranslatorModels<=0){if(translatorModelFailed){ready=false;show("No se pudo descargar un modelo de traducción. Conéctate a internet y reinicia.");}else{ready=true;show(mode==1?"Listo. Audio → "+LANG_NAMES[audioSource]+"; subtítulos → "+LANG_NAMES[source]+".":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");processSpeechQueue();}}}
  private void startAudioCapture(){
   if(android.os.Build.VERSION.SDK_INT<29){show("La captura de audio interno requiere Android 10 o posterior.");stopSelf();return;}
   audioRunning=true;show("Cargando reconocimiento de "+OfflineSpeechModelStore.NAMES[audioModelIndex]+" sin conexión…");
@@ -122,7 +129,7 @@ public class CaptureService extends Service {
   },"subvoz-audio-"+OfflineSpeechModelStore.IDS[audioModelIndex]);audioThread.start();
  }
  private void postRecognizedAudio(String recognized){handler.post(()->{if(dead||paused)return;String key=normalize(recognized);if(key.length()<2)return;if(rememberUnique(key))enqueueAudioResult(recognized);});}
- private void enqueueAudioResult(String value){if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; pulsa Vaciar y retoma la reproducción.");return;}speechQueue.add(value);if(!speaking)show(LANG_NAMES[source]+" reconocido · en cola: "+speechQueue.size()+" · "+value);processSpeechQueue();}
+ private void enqueueAudioResult(String value){if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; pulsa Vaciar y retoma la reproducción.");return;}speechQueue.add(value);audioQueueKeys.add(normalize(value));if(!speaking)show(LANG_NAMES[audioSource]+" reconocido · en cola: "+speechQueue.size()+" · "+value);processSpeechQueue();}
  private void stopAudioCapture(){audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}}if(audioThread!=null)audioThread.interrupt();}
  private void createRecognizer(){
   switch(source){
@@ -142,7 +149,7 @@ public class CaptureService extends Service {
   TextView actionsLabel=overlayLabel("LECTURA",muted);LinearLayout.LayoutParams alp=new LinearLayout.LayoutParams(-1,-2);alp.topMargin=dp(9);panel.addView(actionsLabel,alp);
   LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.HORIZONTAL);LinearLayout.LayoutParams clp=new LinearLayout.LayoutParams(-1,-2);clp.topMargin=dp(4);panel.addView(controls,clp);
   TextView pause=overlayAction("Pausar",surface,Color.WHITE);addOverlayItem(controls,pause,true);pause.setOnClickListener(v->{paused=!paused;pause.setText(paused?"Seguir":"Pausar");if(paused){activeOperation++;tts.stop();speaking=false;}else processSpeechQueue();});
-  TextView clear=overlayAction("Vaciar",surface,Color.WHITE);addOverlayItem(controls,clear,false);clear.setOnClickListener(v->{speechQueue.clear();captureTimes.clear();candidate="";stable=0;activeOperation++;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
+  TextView clear=overlayAction("Vaciar",surface,Color.WHITE);addOverlayItem(controls,clear,false);clear.setOnClickListener(v->{speechQueue.clear();audioQueueKeys.clear();captureTimes.clear();candidate="";stable=0;activeOperation++;tts.stop();speaking=false;show("Cola vaciada. Sigue escuchando subtítulos.");});
   TextView close=overlayAction("Cerrar",0xFF783C4A,Color.WHITE);addOverlayItem(controls,close,false);close.setOnClickListener(v->stopSelf());
   TextView exportLabel=overlayLabel("GUARDAR ARCHIVO",muted);LinearLayout.LayoutParams elp=new LinearLayout.LayoutParams(-1,-2);elp.topMargin=dp(9);panel.addView(exportLabel,elp);
   LinearLayout exports=new LinearLayout(this);exports.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams exp=new LinearLayout.LayoutParams(-1,-2);exp.topMargin=dp(4);panel.addView(exports,exp);
@@ -225,18 +232,18 @@ public class CaptureService extends Service {
  }
  private void processSpeechQueue(){
   if(dead||paused||!ready||speaking||speechQueue.isEmpty())return;
-  String original=speechQueue.poll();speaking=true;currentOriginal=original;
+  String original=speechQueue.poll();boolean fromAudio=audioQueueKeys.remove(normalize(original));int itemSource=fromAudio?audioSource:source;Translator itemTranslator=fromAudio?audioTranslator:translator;speaking=true;currentOriginal=original;
   final long operation=++activeOperation;
   handler.postDelayed(()->{
    if(dead||paused||!speaking||activeOperation!=operation)return;
    activeOperation++;speaking=false;if(tts!=null)tts.stop();
    show("Una frase tardó demasiado; continúo con la siguiente.");processSpeechQueue();
   },30000);
-  if(source==0){recordCaption(original,original);speak(original,operation);return;}
-  show("Traduciendo "+LANG_NAMES[source]+" a español…");
-  translator.translate(original).addOnSuccessListener(translated->{
+  if(itemSource==0){recordCaption(original,original,fromAudio);speak(original,operation);return;}
+  show("Traduciendo "+LANG_NAMES[itemSource]+" a español…");
+  itemTranslator.translate(original).addOnSuccessListener(translated->{
    if(dead||paused||activeOperation!=operation)return;
-   recordCaption(original,translated);speak(translated,operation);
+   recordCaption(original,translated,fromAudio);speak(translated,operation);
   }).addOnFailureListener(e->{
    if(dead||paused||activeOperation!=operation)return;
    activeOperation++;speaking=false;String reason=e.getLocalizedMessage();
@@ -244,8 +251,8 @@ public class CaptureService extends Service {
   });
  }
  private static final class CaptionRow { final String text; final long startMs; CaptionRow(String t,long s){text=t;startMs=s;} }
- private void recordCaption(String original,String translated){
-  String item=source==0?translated:original+"\n→ "+translated;
+ private void recordCaption(String original,String translated,boolean fromAudio){
+  int originalSource=fromAudio?audioSource:source;String item=originalSource==0?translated:original+"\n→ "+translated;
   if(savedCaptions.isEmpty())savedCaptions.add("SubVoz · Transcripción de subtítulos");
   savedCaptions.add(item);
   long when=captureTimes.containsKey(original)?captureTimes.remove(original):SystemClock.elapsedRealtime();
@@ -312,5 +319,5 @@ public class CaptureService extends Service {
   if(result==TextToSpeech.ERROR){speaking=false;activeOperation++;show("El motor de voz no pudo leer esta frase.");processSpeechQueue();}
  }
 
- @Override public void onDestroy(){dead=true;handler.removeCallbacksAndMessages(null);stopAudioCapture();if(display!=null)display.release();if(reader!=null)reader.close();if(projection!=null)projection.stop();if(panel!=null)try{wm.removeView(panel);}catch(Exception ignored){}if(recognizer!=null)recognizer.close();if(translator!=null)translator.close();if(voskModel!=null)voskModel.close();if(activeExporter!=null)activeExporter.cancel();if(tts!=null){tts.stop();tts.shutdown();}speechQueue.clear();super.onDestroy();}
+ @Override public void onDestroy(){dead=true;handler.removeCallbacksAndMessages(null);stopAudioCapture();if(display!=null)display.release();if(reader!=null)reader.close();if(projection!=null)projection.stop();if(panel!=null)try{wm.removeView(panel);}catch(Exception ignored){}if(recognizer!=null)recognizer.close();if(translator!=null)translator.close();if(audioTranslator!=null)audioTranslator.close();if(voskModel!=null)voskModel.close();if(activeExporter!=null)activeExporter.cancel();if(tts!=null){tts.stop();tts.shutdown();}speechQueue.clear();super.onDestroy();}
 }
