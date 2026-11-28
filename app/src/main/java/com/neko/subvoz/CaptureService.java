@@ -43,7 +43,7 @@ public class CaptureService extends Service {
  private static final int MAX_PENDING=30;
  private MediaProjection projection; private VirtualDisplay display; private ImageReader reader;
  private TextRecognizer recognizer; private Translator translator; private TextToSpeech tts;
- private volatile boolean audioRunning=false; private AudioRecord playbackRecord; private Thread audioThread; private Model voskModel; private int mode=0;
+ private volatile boolean audioRunning=false; private AudioRecord playbackRecord; private Thread audioThread; private Model voskModel; private int mode=0,audioModelIndex=2;
  private WindowManager wm; private LinearLayout panel; private TextView status;
  private final Handler handler=new Handler(Looper.getMainLooper());
  private final ArrayDeque<String> speechQueue=new ArrayDeque<>();
@@ -76,10 +76,10 @@ public class CaptureService extends Service {
   if(intent==null||"STOP".equals(intent.getAction())){stopSelf();return START_NOT_STICKY;}
   if(projection!=null){show("Ya hay una sesión activa. Detén antes de cambiar ajustes.");return START_NOT_STICKY;}
   sessionStarted=SystemClock.elapsedRealtime();
-  mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));if(mode==1)source=2;region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
+  mode=intent.getIntExtra("mode",0);source=Math.max(0,Math.min(6,intent.getIntExtra("source",1)));audioModelIndex=Math.max(0,Math.min(4,intent.getIntExtra("audioLang",2)));if(mode==1){int[] sourceForAudio={0,1,2,5,6};source=sourceForAudio[audioModelIndex];}region=intent.getIntExtra("region",0);zone=intent.getIntExtra("zone",30);style=intent.getIntExtra("style",0);textSize=intent.getIntExtra("textSize",16);speechRate=.55f+intent.getIntExtra("rate",50)/100f*1.05f;speechPitch=.65f+intent.getIntExtra("pitch",50)/100f*.7f;requestedVoice=intent.getStringExtra("voice")==null?"":intent.getStringExtra("voice");overlay();
   createRecognizer();
   if(source==0){ready=true;show("Listo: subtítulos en español → voz en español.");}
-  else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Preparando traducción " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show(mode==1?"Listo. Reproduce audio japonés compatible.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");processSpeechQueue();}}).addOnFailureListener(e->{ready=false;show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia.");});}
+  else {translator=Translation.getClient(new TranslatorOptions.Builder().setSourceLanguage(ML_LANG[source]).setTargetLanguage(TranslateLanguage.SPANISH).build());show("Preparando traducción " + LANG_NAMES[source] + " → español…");translator.downloadModelIfNeeded().addOnSuccessListener(v->{if(!dead){ready=true;show(mode==1?"Listo. Reproduce audio en "+LANG_NAMES[source]+" compatible.":"Listo. Abre tu video con subtítulos en "+LANG_NAMES[source]+".");processSpeechQueue();}}).addOnFailureListener(e->{ready=false;show("No se pudo descargar el modelo de traducción. Conéctate a internet y reinicia.");});}
   try{
    MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
    projection=manager.getMediaProjection(intent.getIntExtra("code",Activity.RESULT_CANCELED),(Intent)intent.getParcelableExtra("data"));
@@ -96,11 +96,11 @@ public class CaptureService extends Service {
  }
  private void startAudioCapture(){
   if(android.os.Build.VERSION.SDK_INT<29){show("La captura de audio interno requiere Android 10 o posterior.");stopSelf();return;}
-  audioRunning=true;show("Cargando reconocimiento japonés sin conexión…");
+  audioRunning=true;show("Cargando reconocimiento de "+OfflineSpeechModelStore.NAMES[audioModelIndex]+" sin conexión…");
   audioThread=new Thread(()->{
    Recognizer asr=null;
    try{
-    voskModel=new Model(JapaneseModelStore.modelDir(this).getAbsolutePath());
+    String modelId=OfflineSpeechModelStore.IDS[audioModelIndex];if(!OfflineSpeechModelStore.isInstalled(this,modelId))throw new IllegalStateException("Descarga primero el modelo de audio seleccionado en Ajustes");voskModel=new Model(OfflineSpeechModelStore.modelDir(this,modelId).getAbsolutePath());
     asr=new Recognizer(voskModel,16000.0f);
     asr.setEndpointerMode(Recognizer.EndpointerMode.SHORT);
     AudioPlaybackCaptureConfiguration config=new AudioPlaybackCaptureConfiguration.Builder(projection)
@@ -114,15 +114,15 @@ public class CaptureService extends Service {
     AudioFormat format=new AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(16000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).build();
     playbackRecord=new AudioRecord.Builder().setAudioFormat(format).setBufferSizeInBytes(bufferSize).setAudioPlaybackCaptureConfig(config).build();
     if(playbackRecord.getState()!=AudioRecord.STATE_INITIALIZED)throw new IllegalStateException("AudioRecord no se pudo inicializar");
-    playbackRecord.startRecording();show("Escuchando audio japonés localmente…");byte[] data=new byte[4096];
+    playbackRecord.startRecording();show("Escuchando audio "+LANG_NAMES[source]+" localmente…");byte[] data=new byte[4096];
     while(audioRunning&&!dead){int n=playbackRecord.read(data,0,data.length);if(n>0){if(asr.acceptWaveForm(data,n)){String json=asr.getResult();String recognized=new JSONObject(json).optString("text","").trim();if(!recognized.isEmpty())postRecognizedAudio(recognized);}}else if(n<0){throw new IllegalStateException("La captura de reproducción dejó de estar disponible");}}
     if(audioRunning){String json=asr.getFinalResult();String recognized=new JSONObject(json).optString("text","").trim();if(!recognized.isEmpty())postRecognizedAudio(recognized);}
    }catch(Exception e){if(!dead){String msg=e.getMessage()==null?"":e.getMessage();show("No se pudo reconocer el audio. El reproductor podría bloquear la captura. "+msg);}}
    finally{if(asr!=null)asr.close();audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}playbackRecord.release();playbackRecord=null;} }
-  },"subvoz-audio-japanese");audioThread.start();
+  },"subvoz-audio-"+OfflineSpeechModelStore.IDS[audioModelIndex]);audioThread.start();
  }
  private void postRecognizedAudio(String recognized){handler.post(()->{if(dead||paused)return;String key=normalize(recognized);if(key.length()<2)return;if(rememberUnique(key))enqueueAudioResult(recognized);});}
- private void enqueueAudioResult(String value){if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; pulsa Vaciar y retoma la reproducción.");return;}speechQueue.add(value);if(!speaking)show("Japonés reconocido · en cola: "+speechQueue.size()+" · "+value);processSpeechQueue();}
+ private void enqueueAudioResult(String value){if(speechQueue.size()>=MAX_PENDING){show("La cola está llena; pulsa Vaciar y retoma la reproducción.");return;}speechQueue.add(value);if(!speaking)show(LANG_NAMES[source]+" reconocido · en cola: "+speechQueue.size()+" · "+value);processSpeechQueue();}
  private void stopAudioCapture(){audioRunning=false;if(playbackRecord!=null){try{playbackRecord.stop();}catch(Exception ignored){}}if(audioThread!=null)audioThread.interrupt();}
  private void createRecognizer(){
   switch(source){
@@ -233,7 +233,7 @@ public class CaptureService extends Service {
    show("Una frase tardó demasiado; continúo con la siguiente.");processSpeechQueue();
   },30000);
   if(source==0){recordCaption(original,original);speak(original,operation);return;}
-  show("Traduciendo japonés u otro idioma a español…");
+  show("Traduciendo "+LANG_NAMES[source]+" a español…");
   translator.translate(original).addOnSuccessListener(translated->{
    if(dead||paused||activeOperation!=operation)return;
    recordCaption(original,translated);speak(translated,operation);
